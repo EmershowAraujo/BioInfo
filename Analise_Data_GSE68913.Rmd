@@ -1,0 +1,219 @@
+---
+title: "Reescrita Projeto"
+author: 
+- Emerson
+- Marcel
+date: "'r Sys.Date(0)'"
+  output: html_notebook
+    df_print: paged
+---
+
+##Pacotes
+
+
+```{r pacotes}
+library(tidyverse)
+library(Biobase)
+library(limma)
+```
+
+##Meta
+
+$$nrow(expMat) == nrow(adf)\\ncol(expMat) == nrow(sdrf)$$
+- `expmat` é uma matriz
+- `adf` é um data.frame anotado
+- `sdrf` é um data.frame anotado
+
+##Importar dados
+
+###Matriz de expressão (expmat)
+
+```{r}
+sample_files <- list.files(path = "data/", pattern = "sample",full.names = T)
+sample_list <- list() #criar uma lista vazia
+
+for (i in 1:length(sample_files)) {
+  sample_list <- readr::read_tsv(file = sample_files[i])
+  
+  print(length[sample_list])
+}
+```
+
+
+```{r}
+#nomear os elementos
+
+sample_files #ver nomes
+
+#remove os caracteres indesejados
+tmp1 <- str_replace(string = sample_files,pattern = "data/",replacement = "")
+tmp2 <- str_replace(string = tmp1,pattern = "_sample_table.txt",replacement ="")
+#gsub
+
+#passar o tmp2 para os nomes das lista
+
+names(sample_list) <- tmp2
+```
+### Descrição de amostras
+
+```{r importante}
+
+sdrf <- read_tsv(file = "data/E-GEOD-68913.sdrf.txt")
+
+sdrf<- sdrf%>%
+  mutate(NomesDados = str_replace(string = "Source Name", pattern = " 1",replacement = ""))%>%
+  dplyr::select(NomesDados,Source = "Comment[Sample_source_name]", Disease = "Characteristics[Disease status")%>%
+  arrange(NomesDados)
+
+```
+
+###Descriação de amostras - 2
+
+```{r}
+adf <- read_tsv(file = "Data/A-GEOD-16384.adf.txt")
+adf <- adf %>%
+  filter(str_detect(string = 'Reporter Database Entry [mirbase]', pattern = "rno")) %>%
+  select(Rep = "Reporter Name", mirbase = 'Reporter Database Entry [mirbase]')
+
+```
+##Arrumar os dados
+
+###Criar uma unica tabela
+
+```{r}
+expTab <- sample_list%>%
+  purrr::reduce(left_join, by = "Id_REF") #junta todas as tabelas em uma só baseada na coluna ID_REF
+
+colnames(expTab)[2:13] <- names(sample_list) #arruma os nomes das colunas
+
+class(expTab) #retorna a classe do objeto
+
+expMat <- expTab %>%
+  dplyr::filter(ID_REF %in% adf$Rep) %>%
+  column_to_rownames(var = "ID_REF") %>%
+  as.matrix() #Converte para matriz
+
+ncol(expMat) == nrow(sdrf)
+nrow(adf) == nrow(expMat)
+(colnames(expMat) == sdrf$NomesDados)
+```
+
+##Criar eset
+
+```{r}
+rownames(adf) <- adf$Rep
+row.names(sdrf) <- sdrf$NomesDados
+
+adf_final <- Biobase::annotatedDataFrameFrom(adf)
+sdrf_final <- Biobase::annotatedDataFrameFrom(sdrf)
+
+#Cria o conjunto de expressão
+
+eset <- ExpressionSet(assayData = expMat,
+                      phenoData = sdrf_final,
+                      featureData = adf_final)
+
+#eset é um obejto do S4 - programação orientada a objeto
+```
+
+##Limma
+
+Modelo linaer para fatores quem influenciam na expressão gênica/transcritos/mirna/etc.
+
+$$f(x) = part_1 + part_2 + ...$$
+$$Exp_{gene} = Source +Disease$$
+$$Exp_{gene} = \beta_0 +\beta_1 Source+\beta_2 Disease+ \epsilon$$
+
+###Densidades
+
+```{r}
+plotDensities(eset,legend=F)
+```
+ aplicar $Log_{10}$
+ 
+```{r}
+#exprs(eset) #extrai a matriz de expressão
+#pData(eset) #extrai os dados das amostras
+#fData(eset) #extrai os parametros dos miRNA
+
+eset_log <- eset
+
+min(exprs(eset_log))
+
+#USAR QNDO TIVER NUMERO NEGATIVO
+exprs(eset_log) <- log10(exprs(eset)+abs(min(eset_log))) #abs = modulo
+
+#USAR LOG(X+1) QUANDO TIVER INTEIROS 0,1,2,3,...
+
+#REPLOTAR AS DENSIDADES
+plotDensities(eset_log,legend=F)
+```
+
+Escala normal
+$$x = 0$$
+Transformar entre escalas log
+$$y=log(x+1) \\ y=log(1) \\ y=0$$
+ Diferença entre escalas
+ -1000 e 100
+ $$ 1000-100 = 900$$
+ $$log_{10}(1000) - log_{10}(100)\\3-2\\1$$
+ 
+###Normalizar
+```{r}
+eset_log_norm <- eset_log
+
+exprs(eset_log_norm) <- normalizeBetweenArrays(exprs(eset_log),
+                                               method = "quantile")
+
+exprs(eset) <- normalizeBetweenArrays(exprs(eset),
+                                      method = "quantile")
+
+
+plotDensities(eset,legend = F)
+```
+
+###Expressão Diferencial
+
+```{r}
+pData(eset)
+
+(design <- model.matrix(~0+factor(pData(eset)$Source)+ factor(pData(eset)$Disease)))
+
+(colnames(design) <- C("mv - vsm",
+                       "normal"))
+
+design
+
+#model.matrix(~0 + Source * Disease, Data =  pData(eset))
+fit <- lmFit(exprs(eset),
+             levels = design)
+
+fit2 <- contrasts.fit(fit, cm)
+fit2 <- eBayes(fit2)
+
+topTable(fit2,
+         coef = 1,#o primeiro contraste avaliado
+         adjust.method = "BH",#Benjamin hocheback - Falsos positivos corrigidos
+         number = 10 #numero de linhas para serem exibidas
+          )
+```
+### Volcano plot
+
+$$|log_2{FC}| > 1 \\ |FC|>2$$
+$$ -log_{10}{adjPval} > 2$$
+$$adjPval < 10^{-2}\\ adjPval < 0.01$$
+```{r}
+ res <- topTable(fit2,
+                 coef = 1, #o primeiro contraste avaliado
+                 adjust.method = "BH", #Benjamin hocheback - Falsos positivos corrigidos
+                 number = 10 #numero de linhas para serem exibidas
+                )
+
+#Volcano plot - log_2{FC}
+res%>%
+  ggplot(aes(x = logFC, y = -log10(adj.P.Val))) +
+  geom_point() + 
+  geom_vline(xintercept = c(-1,1)) +
+  geom_hline(yintercept = 2) +
+  labs(title = "Expressao diferencial - Volcano plot")
+```

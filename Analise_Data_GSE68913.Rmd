@@ -3,13 +3,12 @@ title: "Reescrita Projeto"
 author: 
 - Emerson
 - Marcel
-date: "'r Sys.Date(0)'"
+date: "'r Sys.Date()'"
   output: html_notebook
     df_print: paged
 ---
 
 ##Pacotes
-
 
 ```{r pacotes}
 library(tidyverse)
@@ -19,34 +18,30 @@ library(limma)
 
 ##Meta
 
-$$nrow(expMat) == nrow(adf)\\ncol(expMat) == nrow(sdrf)$$
-- `expmat` é uma matriz
-- `adf` é um data.frame anotado
-- `sdrf` é um data.frame anotado
+$$nrow(expMat) == nrow(adf)\\ncol(expMat) == nrow(sdrf)$$ - `expmat` é uma matriz - `adf` é um data.frame anotado - `sdrf` é um data.frame anotado
 
 ##Importar dados
 
 ###Matriz de expressão (expmat)
 
-```{r}
-sample_files <- list.files(path = "data/", pattern = "sample",full.names = T)
+```{r Leitura dos Arquivos GEOD}
+sample_files <- list.files(path = "Data/E-GEOD-68913.processed.1/", pattern = "sample",full.names = T)
 sample_list <- list() #criar uma lista vazia
 
 for (i in 1:length(sample_files)) {
-  sample_list <- readr::read_tsv(file = sample_files[i])
+  sample_list[[i]] <- readr::read_tsv(file = sample_files[i])
   
-  print(length[sample_list])
+  print(length(sample_list))
 }
 ```
 
-
-```{r}
+```{r Renomeando dados}
 #nomear os elementos
 
 sample_files #ver nomes
 
 #remove os caracteres indesejados
-tmp1 <- str_replace(string = sample_files,pattern = "data/",replacement = "")
+tmp1 <- str_replace(string = sample_files,pattern = "Data/E-GEOD-68913.processed.1/",replacement = "")
 tmp2 <- str_replace(string = tmp1,pattern = "_sample_table.txt",replacement ="")
 #gsub
 
@@ -54,35 +49,40 @@ tmp2 <- str_replace(string = tmp1,pattern = "_sample_table.txt",replacement ="")
 
 names(sample_list) <- tmp2
 ```
+
 ### Descrição de amostras
 
-```{r importante}
+```{r importante -- Criando SDRF}
 
-sdrf <- read_tsv(file = "data/E-GEOD-68913.sdrf.txt")
+sdrf <- read_tsv(file = "Data/E-GEOD-68913.sdrf.txt")
+
+colnames(sdrf)
 
 sdrf<- sdrf%>%
-  mutate(NomesDados = str_replace(string = "Source Name", pattern = " 1",replacement = ""))%>%
-  dplyr::select(NomesDados,Source = "Comment[Sample_source_name]", Disease = "Characteristics[Disease status")%>%
+  mutate(NomesDados = str_replace(string = `Source Name`, pattern = " 1",replacement = ""))%>%
+  dplyr::select(NomesDados, Source = "Comment [Sample_source_name]", Disease = "Characteristics [disease status]")%>%
   arrange(NomesDados)
 
 ```
 
-###Descriação de amostras - 2
+###Descrição de amostras - 2
 
-```{r}
-adf <- read_tsv(file = "Data/A-GEOD-16384.adf.txt")
+```{r Criando ADF}
+adf <- read_tsv(file = "Data/A-GEOD-16384.adf.txt",skip = 15)
+colnames(adf)
 adf <- adf %>%
-  filter(str_detect(string = 'Reporter Database Entry [mirbase]', pattern = "rno")) %>%
+  filter(str_detect(string = `Reporter Database Entry [mirbase]`, pattern = "rno")) %>%
   select(Rep = "Reporter Name", mirbase = 'Reporter Database Entry [mirbase]')
 
 ```
+
 ##Arrumar os dados
 
 ###Criar uma unica tabela
 
-```{r}
+```{r ???}
 expTab <- sample_list%>%
-  purrr::reduce(left_join, by = "Id_REF") #junta todas as tabelas em uma só baseada na coluna ID_REF
+  purrr::reduce(left_join, by = "ID_REF") #junta todas as tabelas em uma só baseada na coluna ID_REF
 
 colnames(expTab)[2:13] <- names(sample_list) #arruma os nomes das colunas
 
@@ -100,12 +100,12 @@ nrow(adf) == nrow(expMat)
 
 ##Criar eset
 
-```{r}
+```{r Criando ESET -- Expressão}
 rownames(adf) <- adf$Rep
 row.names(sdrf) <- sdrf$NomesDados
 
-adf_final <- Biobase::annotatedDataFrameFrom(adf)
-sdrf_final <- Biobase::annotatedDataFrameFrom(sdrf)
+adf_final <- Biobase::AnnotatedDataFrame(adf)
+sdrf_final <- Biobase::AnnotatedDataFrame(sdrf)
 
 #Cria o conjunto de expressão
 
@@ -113,24 +113,23 @@ eset <- ExpressionSet(assayData = expMat,
                       phenoData = sdrf_final,
                       featureData = adf_final)
 
-#eset é um obejto do S4 - programação orientada a objeto
+#eset é um objeto do S4 - programação orientada a objeto
 ```
 
 ##Limma
 
-Modelo linaer para fatores quem influenciam na expressão gênica/transcritos/mirna/etc.
+Modelo linear para fatores quem influenciam na expressão gênica/transcritos/mirna/etc.
 
-$$f(x) = part_1 + part_2 + ...$$
-$$Exp_{gene} = Source +Disease$$
-$$Exp_{gene} = \beta_0 +\beta_1 Source+\beta_2 Disease+ \epsilon$$
+$$f(x) = part_1 + part_2 + ...$$ $$Exp_{gene} = Source +Disease$$ $$Exp_{gene} = \beta_0 +\beta_1 Source+\beta_2 Disease+ \epsilon$$
 
 ###Densidades
 
-```{r}
+```{r Plot densidades}
 plotDensities(eset,legend=F)
 ```
- aplicar $Log_{10}$
- 
+
+aplicar $Log_{10}$
+
 ```{r}
 #exprs(eset) #extrai a matriz de expressão
 #pData(eset) #extrai os dados das amostras
@@ -141,7 +140,7 @@ eset_log <- eset
 min(exprs(eset_log))
 
 #USAR QNDO TIVER NUMERO NEGATIVO
-exprs(eset_log) <- log10(exprs(eset)+abs(min(eset_log))) #abs = modulo
+exprs(eset_log) <- log10(exprs(eset)+abs(min(exprs(eset_log)))) #abs = modulo
 
 #USAR LOG(X+1) QUANDO TIVER INTEIROS 0,1,2,3,...
 
@@ -149,16 +148,10 @@ exprs(eset_log) <- log10(exprs(eset)+abs(min(eset_log))) #abs = modulo
 plotDensities(eset_log,legend=F)
 ```
 
-Escala normal
-$$x = 0$$
-Transformar entre escalas log
-$$y=log(x+1) \\ y=log(1) \\ y=0$$
- Diferença entre escalas
- -1000 e 100
- $$ 1000-100 = 900$$
- $$log_{10}(1000) - log_{10}(100)\\3-2\\1$$
- 
+Escala normal $$x = 0$$ Transformar entre escalas log $$y=log(x+1) \\ y=log(1) \\ y=0$$ Diferença entre escalas -1000 e 100 $$ 1000-100 = 900$$ $$log_{10}(1000) - log_{10}(100)\\3-2\\1$$
+
 ###Normalizar
+
 ```{r}
 eset_log_norm <- eset_log
 
@@ -177,19 +170,31 @@ plotDensities(eset,legend = F)
 ```{r}
 pData(eset)
 
-(design <- model.matrix(~0+factor(pData(eset)$Source)+ factor(pData(eset)$Disease)))
+(design <- model.matrix(~0+factor(pData(eset)$Source): factor(pData(eset)$Disease)))
 
-(colnames(design) <- C("mv - vsm",
-                       "normal"))
+(colnames(design) <- c("mv_CKD","vsm_CKD",
+                       "mv_normal","vsm_normal"))
 
 design
 
 #model.matrix(~0 + Source * Disease, Data =  pData(eset))
 fit <- lmFit(exprs(eset),
-             levels = design)
+                  design)
+
+cm <- makeContrasts(b1 = "mv_CKD + vsm_CKD - mv_normal - vsm_normal", #Doença
+                    b2 = "mv_CKD + mv_normal - vsm_CKD - vsm_normal", #Fonte
+                    b3 = "mv_normal - vsm_normal", #Normal - comparando Fontes
+                    b4 = "vsm_normal - vsm_CKD", #Fonte(VSM) - comparando nas Doença
+                    b5 = "mv_normal - mv_CKD", #Fonte(MV) - comparando doença
+                    b6 = "mv_CKD - vsm_CKD", #Doença(CKD) - comparando Fontes 
+                    levels = design)
 
 fit2 <- contrasts.fit(fit, cm)
 fit2 <- eBayes(fit2)
+
+#10 primeiras linhas dos coeficientes
+fit2$coefficients[1:10]
+#Para o coeficiente 1, ou seja, efeito da doença na expressão de miRNA
 
 topTable(fit2,
          coef = 1,#o primeiro contraste avaliado
@@ -197,23 +202,337 @@ topTable(fit2,
          number = 10 #numero de linhas para serem exibidas
           )
 ```
+
 ### Volcano plot
 
-$$|log_2{FC}| > 1 \\ |FC|>2$$
-$$ -log_{10}{adjPval} > 2$$
-$$adjPval < 10^{-2}\\ adjPval < 0.01$$
+$$|log_2{FC}| > 1 \\ |FC|>2$$ $$ -log_{10}{adjPval} > 2$$ $$adjPval < 10^{-2}\\ adjPval < 0.01$$
+
 ```{r}
- res <- topTable(fit2,
-                 coef = 1, #o primeiro contraste avaliado
-                 adjust.method = "BH", #Benjamin hocheback - Falsos positivos corrigidos
-                 number = 10 #numero de linhas para serem exibidas
+
+library(ggrepel)
+
+res <- topTable(fit2,
+                coef = 6, #o primeiro contraste avaliado
+                adjust.method = "BH", #Benjamin hocheback - Falsos positivos corrigidos
+                number = Inf #numero de linhas para serem exibidas
                 )
 
 #Volcano plot - log_2{FC}
-res%>%
-  ggplot(aes(x = logFC, y = -log10(adj.P.Val))) +
+res %>% 
+  rownames_to_column(var = "miRNA") %>% 
+  mutate(Cond = case_when(logFC > 1 & adj.P.Val < 0.01 ~ "Up",
+                          logFC < -1 & adj.P.Val < 0.01 ~ "Down",
+                          TRUE ~ "Not Sig")) %>%
+  #Print gráfico: DEf. eixo X e Y
+  ggplot(aes(x = logFC, y = -log10(adj.P.Val),color = Cond,label = miRNA)) +
   geom_point() + 
-  geom_vline(xintercept = c(-1,1)) +
-  geom_hline(yintercept = 2) +
-  labs(title = "Expressao diferencial - Volcano plot")
+  labs(title = "miRNA UP e DOWN regulados - Volcano plot B6") +
+  # geom_vline(xintercept = c(-1,1)) +
+  # geom_hline(yintercept = 2) + 
+  geom_text_repel(size=3) +
+  theme_bw() +
+  scale_color_manual(values = c("blue","black","red")) +
+  theme(text = element_text(family = "serif"))
+
+#ggsave(filename = "ggplot_vulcano.jpg",scale = 2,dpi = 300)
 ```
+
+Extrair os miRNA diferencialmente regulados
+
+```{r}
+mirs <- res %>% 
+  rownames_to_column(var = "miRNA") %>% 
+  mutate(Cond = case_when(logFC > 1 & adj.P.Val < 0.01 ~ "Up",
+                          logFC < -1 & adj.P.Val < 0.01 ~ "Down",
+                          TRUE ~ "Not Sig")) %>% 
+        filter(Cond != "Not Sig") %>% 
+        pull(miRNA)
+
+mirs_dif<-list()
+#Gerar lista com dados de expressões dos 6 parametros utilizados
+for (i in 1:6) {
+    mirs_dif[[i]] <- topTable(fit2, 
+                  coef = i, #o primeiro contraste avaliado
+                  adjust.method = "BH", #Benjamin hocheback - Falsos positivos corrigidos
+                  number = Inf #numero de linhas para serem exibidas
+                  )%>%
+    rownames_to_column(var = "miRNA") %>% 
+    mutate(Cond = case_when(logFC > 1 & adj.P.Val < 0.01 ~ "Up",
+                          logFC < -1 & adj.P.Val < 0.01 ~ "Down",
+                          TRUE ~ "Not Sig")) %>% 
+    filter(Cond != "Not Sig") %>% 
+    pull(miRNA)
+}
+
+#Nomear Lista do mirs_dif
+names(mirs_dif) <- c("B1","B2","B3","B4","B5","B6")
+
+library(glue)
+
+for (i in c(1,2,3,5,6)) {
+  topTable(fit2, 
+           coef = i, #o primeiro contraste avaliado
+           adjust.method = "BH", #Benjamin hocheback - Falsos positivos corrigidos
+           number = Inf #numero de linhas para serem exibidas
+           )%>%
+    rownames_to_column(var = "miRNA") %>% 
+    mutate(Cond = case_when(logFC > 1 & adj.P.Val < 0.01 ~ "Up",
+                          logFC < -1 & adj.P.Val < 0.01 ~ "Down",
+                          TRUE ~ "Not Sig")) %>%
+  
+  #Print gráfico: DEf. eixo X e Y
+  ggplot(aes(x = logFC, y = -log10(adj.P.Val),color = Cond)) +
+  geom_point() + 
+  labs(title = glue("miRNA UP e DOWN regulados - Volcano plot B{i}")) +
+  # geom_vline(xintercept = c(-1,1)) +
+  # geom_hline(yintercept = 2) + 
+  # geom_text_repel(size=3) +
+  theme_bw() +
+  scale_color_manual(values = c("blue","black","red")) +
+  theme(text = element_text(family = "serif"))
+  
+  
+  ggsave(filename = glue("OutPut/ggplot_volcano_{i}.jpg"),scale = 2,dpi = 300)
+}
+
+
+
+  #select(miRNA, logFC,adj.P.Val,Cond)#Opcional
+```
+
+## Enrinquecimento funcional (EF)
+
+Para analise de EF de miRNAs usamos alvos.
+
+```{r}
+
+library(miRNAtap)
+library(miRNAtap.db)
+g2Predicts <- function(x, db = c('pictar','diana','targetscan','miranda','mirdb'), spc = "rno" ){
+  tab <- NULL
+  miRNA_targets <- NULL
+  for(i in 1:length(x)){
+    target <- getPredictedTargets(x[i], sources = db, both_strands = TRUE,species = spc)
+    if(is.null(target[i])){
+      dat <- data.frame(miRNA = x[i], targetID = NA, Database = "Targetscan, Pictar")
+    } else dat<- data.frame(miRNA = x[i], targetID = rownames(target), Database = "Targetscan, Pictar")
+    tab <- rbind(tab, dat)
+  }
+  return(tab)
+}
+
+
+```
+
+```{r}
+
+mirs_target <- list()
+for (i in c(1,2,3,5,6)) {
+  mirs_target[[i]] <- g2Predicts(x = str_replace(string = mirs_dif[[i]], 
+                                      pattern = "-star_st|_st",
+                                      replacement = ""))
+  print(i)
+}
+names(mirs_target) <- names(mirs_dif)
+
+```
+
+```{r}
+library(org.Rn.eg.db)
+rno <- org.Rn.eg.db
+
+targets_id <- list() 
+
+for (i in c(1,2,3,5,6)) {
+  targets_id[[i]] <- AnnotationDbi::select(x= rno,
+                     keys = unique(mirs_target[[i]]$targetID),
+                     columns = c("SYMBOL","ENTREZID"),
+                     keytype = "ENTREZID") %>%
+    filter(!is.na(SYMBOL)) %>% 
+    distinct()
+}
+
+names(targets_id) <- names(mirs_target)
+
+```
+
+```{r}
+library(clusterProfiler)
+
+Kegg_list <- list()
+
+for (i in c(1,2,3,5,6)) {
+  Kegg_list[[i]] <- enrichKEGG(gene = (targets_id[[i]]$ENTREZID),
+                   organism     = "rno",
+                   #nPerm        = 1000,
+                   minGSSize    = 3,
+                   maxGSSize    = 800,
+                   pvalueCutoff = 0.05,
+                   pAdjustMethod = "BH", ##no p-value correction or BH
+                   keyType       = "ncbi-geneid")
+
+  Kegg_list[[i]]@result %>% write_csv(glue("OutPut/Kegg_B{i}_Results.csv"))
+  }
+
+```
+
+```{r Gerar Gene Ontology}
+library(clusterProfiler)
+
+GO_list <- list()
+
+for (i in c(1,2,3,5,6)) {
+  GO_list[[i]] <- enrichGO(gene = (targets_id[[i]]$ENTREZID),
+                   OrgDb = rno,
+                   #nPerm        = 1000,
+                   ont = "BP",
+                   minGSSize = 10,
+                   maxGSSize = 500,
+                   pvalueCutoff = 0.05,
+                   pAdjustMethod = "BH", ##no p-value correction or BH
+                   keyType       = "ENTREZID")
+
+  GO_list[[i]]@result %>% write_csv(glue("OutPut/GO_B{i}_Results.csv"))
+  }
+
+```
+
+```{r DotPlot modelo(processamento de Dados)}
+library(viridis)
+temp <- GO_list[[1]]@result
+
+temp %>%
+  dplyr::arrange(p.adjust) %>%
+  slice_head(n=50) %>% #25 linhas baseado no Pvalor ajustado
+  separate(col = GeneRatio, into = c("x1","x2"), sep = "\\/") %>% 
+  mutate(GeneRatio = as.numeric(x1)/as.numeric(x2)) %>% 
+  mutate(Description = fct_reorder(Description, GeneRatio)) %>% 
+  #dplyr::arrange(desc(Description)) %>% 
+  ggplot(aes(x = GeneRatio, y = Description, size = Count, color = (p.adjust))) +
+  geom_point() +
+  labs(title = "Gene Ontology - {NOMEGRUPO}", 
+       x = "Gene Ratio",
+       y = "",
+       color = "FDR",
+       size = "count")  +
+  theme_bw() +
+  viridis::scale_color_viridis(alpha = 0.9, discrete = F, option = "A") +
+  theme(text = element_text(family = "serif"), legend.key.size = unit(5,"mm"),
+        plot.title = element_text(face = "bold", size = 30, hjust = .5),
+        axis.text.y = element_text(face = "italic", size = 15),
+         axis.text.x = element_text(face = "italic", size = 15),
+        axis.title.x = element_text(face = "bold", size = 20)
+        )
+ggsave(filename = "TESTE.png", dpi = 600, height = 14.2, width = 14.2 )
+  #scale_color_gradientn(colours = c("#FA0000", "#F2FF00", "#052BFF"))
+
+
+```
+```{r gerando todos os Dotplot}
+
+names(GO_list) <- names(mirs_dif)
+
+for (i in c(1,2,3,5,6)) {
+  temp <- GO_list[[i]]@result
+  NOMEGRUPO <- names(GO_list)[i]
+
+temp %>%
+  dplyr::arrange(p.adjust) %>%
+  slice_head(n=50) %>% #25 linhas baseado no Pvalor ajustado
+  separate(col = GeneRatio, into = c("x1","x2"), sep = "\\/") %>% 
+  mutate(GeneRatio = as.numeric(x1)/as.numeric(x2)) %>% 
+  mutate(Description = fct_reorder(Description, GeneRatio)) %>% 
+  #dplyr::arrange(desc(Description)) %>% 
+  ggplot(aes(x = GeneRatio, y = Description, size = Count, color = (p.adjust))) +
+  geom_point() +
+  labs(title = glue("Gene Ontology - {NOMEGRUPO}"), 
+       x = "Gene Ratio",
+       y = "",
+       color = "FDR",
+       size = "count")  +
+  theme_bw() +
+  viridis::scale_color_viridis(alpha = 0.9, discrete = F, option = "B") +
+  theme(text = element_text(family = "serif"), legend.key.size = unit(5,"mm"),
+        plot.title = element_text(face = "bold", size = 30, hjust = .5),
+        axis.text.y = element_text(face = "italic", size = 15),
+         axis.text.x = element_text(face = "italic", size = 15),
+        axis.title.x = element_text(face = "bold", size = 20)
+        )
+ggsave(filename = glue("OutPut/GO_DotPlot_{NOMEGRUPO}.png"), dpi = 600, height = 14.2, width = 14.2 )
+  
+}
+
+
+```
+
+```{r tratamento dados kegg_list}
+library(viridis)
+temp <- Kegg_list[[1]]@result
+
+temp %>%
+  dplyr::arrange(p.adjust) %>%
+  slice_head(n=50) %>% #25 linhas baseado no Pvalor ajustado
+  separate(col = GeneRatio, into = c("x1","x2"), sep = "\\/") %>% 
+  mutate(GeneRatio = as.numeric(x1)/as.numeric(x2)) %>% 
+  mutate(Description = fct_reorder(Description, GeneRatio)) %>% 
+  #dplyr::arrange(desc(Description)) %>% 
+  ggplot(aes(x = GeneRatio, y = Description, size = Count, color = (p.adjust))) +
+  geom_point() +
+  labs(title = "Keeg Pathway - {NOMEGRUPO}", 
+       x = "Gene Ratio",
+       y = "",
+       color = "FDR",
+       size = "count")  +
+  theme_bw() +
+  viridis::scale_color_viridis(alpha = 0.9, discrete = F, option = "A") +
+  theme(text = element_text(family = "serif"), legend.key.size = unit(5,"mm"),
+        plot.title = element_text(face = "bold", size = 30, hjust = .5),
+        axis.text.y = element_text(face = "italic", size = 15),
+         axis.text.x = element_text(face = "italic", size = 15),
+        axis.title.x = element_text(face = "bold", size = 20)
+        )
+ggsave(filename = "OutPut/Keeg_Pathway_DotPlot.png", dpi = 600, height = 14.2, width = 14.2 )
+  #scale_color_gradientn(colours = c("#FA0000", "#F2FF00", "#052BFF"))
+```
+
+
+```{r}
+
+names(Kegg_list) <- names(mirs_dif)
+
+for (i in c(1,2,3,5,6)) {
+  temp <- Kegg_list[[i]]@result
+  NOMEGRUPO_KEGG <- names(Kegg_list)[i]
+
+temp %>%
+  dplyr::arrange(p.adjust) %>%
+  slice_head(n=50) %>% #25 linhas baseado no Pvalor ajustado
+  separate(col = GeneRatio, into = c("x1","x2"), sep = "\\/") %>% 
+  mutate(GeneRatio = as.numeric(x1)/as.numeric(x2)) %>% 
+  mutate(Description = fct_reorder(Description, GeneRatio)) %>% 
+  #dplyr::arrange(desc(Description)) %>% 
+  ggplot(aes(x = GeneRatio, y = Description, size = Count, color = (p.adjust))) +
+  geom_point() +
+  labs(title = glue("KEGG PATHWAY - {NOMEGRUPO_KEGG}"), 
+       x = "Gene Ratio",
+       y = "",
+       color = "FDR",
+       size = "count")  +
+  theme_bw() +
+  viridis::scale_color_viridis(alpha = 0.9, discrete = F, option = "B") +
+  theme(text = element_text(family = "serif"), legend.key.size = unit(5,"mm"),
+        plot.title = element_text(face = "bold", size = 30, hjust = .5),
+        axis.text.y = element_text(face = "italic", size = 15),
+         axis.text.x = element_text(face = "italic", size = 15),
+        axis.title.x = element_text(face = "bold", size = 20)
+        )
+ggsave(filename = glue("OutPut/KEGG_DotPlot_{NOMEGRUPO_KEGG}.png"), dpi = 600, height = 14.2, width = 14.2 )
+  
+}
+
+```
+
+```{r}
+readr::write_rds(mirs_target,"OutPut/Lista_alvos_mirs.rds")
+```
+
